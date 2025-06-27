@@ -12,7 +12,7 @@ import {ITaskMailbox} from "@hourglass-monorepo/src/interfaces/core/ITaskMailbox
 
 import {TaskAVSRegistrar} from "@project/l1-contracts/TaskAVSRegistrar.sol";
 import {AVSTaskHook} from "@project/l2-contracts/AVSTaskHook.sol";
-import {HelloWorld} from "@project/HelloWorld.sol"; // Import your custom contract
+import {ContractAudit} from "@project/ContractAudit.sol";
 
 contract DeployMyContracts is Script {
     using stdJson for string;
@@ -34,41 +34,61 @@ contract DeployMyContracts is Script {
         address contractAddress;
     }
 
+    uint32 constant EXECUTOR_OPERATOR_SET_ID = 1;
+    
     function run(string memory environment, string memory _context) public {
-        // Read the context
         Context memory context = _readContext(environment, _context);
 
         vm.startBroadcast(context.deployerPrivateKey);
-        console.log("Deployer address:", vm.addr(context.deployerPrivateKey));
 
-        //TODO: Implement custom contracts deployment
-        // CustomContract customContract = new CustomContract();
-        // console.log("CustomContract deployed to:", address(customContract));
-        HelloWorld helloWorld = new HelloWorld();
-        console.log("HelloWorld deployed to:", address(helloWorld));
+        ContractAudit contractAudit = new ContractAudit(
+            address(context.taskMailbox),
+            context.avs,
+            EXECUTOR_OPERATOR_SET_ID
+        );
+        console.log("ContractAudit deployed:", address(contractAudit));
 
         vm.stopBroadcast();
 
         vm.startBroadcast(context.avsPrivateKey);
-        console.log("AVS address:", context.avs);
 
-        //TODO: Implement any additional AVS setup
+        if (!contractAudit.hasRole(contractAudit.ADMIN_ROLE(), context.avs)) {
+            contractAudit.grantRole(contractAudit.ADMIN_ROLE(), context.avs);
+        }
+        
+        if (!contractAudit.hasRole(contractAudit.FEE_COLLECTOR_ROLE(), context.avs)) {
+            contractAudit.grantRole(contractAudit.FEE_COLLECTOR_ROLE(), context.avs);
+        }
+
+        _registerInitialOperators(environment, contractAudit);
 
         vm.stopBroadcast();
 
-        //TODO: Write to output file
         Output[] memory outputs = new Output[](1);
-        // outputs[0] = Output({name: "CustomContract", address: address(customContract)});
-        // _writeOutputToJson(environment, outputs);
-        outputs[0] = Output({name: "HelloWorld", contractAddress: address(helloWorld)});
+        outputs[0] = Output({name: "ContractAudit", contractAddress: address(contractAudit)});
         _writeOutputToJson(environment, outputs);
+    }
+
+    function _registerInitialOperators(string memory environment, ContractAudit contractAudit) internal {
+        string memory operatorsConfigFile = string.concat("script/", environment, "/operators.json");
+        
+        try vm.readFile(operatorsConfigFile) returns (string memory operatorsConfig) {
+            address[] memory operators = stdJson.readAddressArray(operatorsConfig, ".operators");
+            
+            for (uint256 i = 0; i < operators.length; i++) {
+                if (!contractAudit.isOperatorRegistered(operators[i])) {
+                    contractAudit.registerOperator(operators[i]);
+                }
+            }
+        } catch Error(string memory) {
+            // Operators file not found - skip registration
+        }
     }
 
     function _readContext(
         string memory environment,
         string memory _context
     ) internal view returns (Context memory) {
-        // Parse the context
         Context memory context;
         context.avs = stdJson.readAddress(_context, ".context.avs.address");
         context.avsPrivateKey = uint256(stdJson.readBytes32(_context, ".context.avs.avs_private_key"));
@@ -92,25 +112,20 @@ contract DeployMyContracts is Script {
                             string.concat("script/", environment, "/output/deploy_hourglass_core_output.json");
         string memory hourglassConfig = vm.readFile(hourglassConfigFile);
 
-        // Parse and return the address
         return stdJson.readAddress(hourglassConfig, string.concat(".addresses.", key));
     }
 
     function _readAVSL1ConfigAddress(string memory environment, string memory key) internal view returns (address) {
-        // Load the AVS L1 config file
         string memory avsL1ConfigFile = string.concat("script/", environment, "/output/deploy_avs_l1_output.json");
         string memory avsL1Config = vm.readFile(avsL1ConfigFile);
 
-        // Parse and return the address
         return stdJson.readAddress(avsL1Config, string.concat(".addresses.", key));
     }
 
     function _readAVSL2ConfigAddress(string memory environment, string memory key) internal view returns (address) {
-        // Load the AVS L2 config file
         string memory avsL2ConfigFile = string.concat("script/", environment, "/output/deploy_avs_l2_output.json");
         string memory avsL2Config = vm.readFile(avsL2ConfigFile);
 
-        // Parse and return the address
         return stdJson.readAddress(avsL2Config, string.concat(".addresses.", key));
     }
 
@@ -121,7 +136,6 @@ contract DeployMyContracts is Script {
         uint256 length = outputs.length;
 
         if (length > 0) {
-            // Add the addresses object
             string memory addresses = "addresses";
 
             for (uint256 i = 0; i < outputs.length - 1; i++) {
@@ -129,18 +143,24 @@ contract DeployMyContracts is Script {
             }
             addresses = vm.serializeAddress(addresses, outputs[length - 1].name, outputs[length - 1].contractAddress);
 
-            // Add the chainInfo object
             string memory chainInfo = "chainInfo";
             chainInfo = vm.serializeUint(chainInfo, "chainId", block.chainid);
 
-            // Finalize the JSON
+            string memory auditInfo = "auditInfo";
+            auditInfo = vm.serializeUint(auditInfo, "executorOperatorSetId", EXECUTOR_OPERATOR_SET_ID);
+            auditInfo = vm.serializeString(auditInfo, "minAuditFee", "0.01 ether");
+
             string memory finalJson = "final";
             vm.serializeString(finalJson, "addresses", addresses);
-            finalJson = vm.serializeString(finalJson, "chainInfo", chainInfo);
+            vm.serializeString(finalJson, "chainInfo", chainInfo);
+            finalJson = vm.serializeString(finalJson, "auditInfo", auditInfo);
 
             // Write to output file
-            string memory outputFile = string.concat("script/", environment, "/output/deploy_custom_contracts_output.json");
+            string memory outputFile = string.concat("script/", environment, "/output/deploy_contract_audit_output.json");
             vm.writeJson(finalJson, outputFile);
+            
+            console.log("\nDeployment output written to:", outputFile);
         }
     }
 }
+
