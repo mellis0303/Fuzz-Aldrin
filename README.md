@@ -25,13 +25,9 @@ brew install grpcurl
 
 Test with contract source code:
 ```bash
-# Create payload
 PAYLOAD='{"type":"source","data":"pragma solidity ^0.8.0;\ncontract Test {\n    uint256 public value;\n}"}'
-
-# Base64 encode the payload (required for gRPC)
 ENCODED_PAYLOAD=$(echo -n "$PAYLOAD" | base64)
 
-# Send request
 grpcurl -plaintext \
   -d "{\"task_id\": \"dGVzdC0xMjM=\", \"payload\": \"$ENCODED_PAYLOAD\"}" \
   localhost:8080 \
@@ -40,7 +36,7 @@ grpcurl -plaintext \
 
 Test with contract address:
 ```bash
-PAYLOAD='{"type":"address","data":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48","network":"mainnet","etherscan_key":"YOUR_API_KEY"}'
+PAYLOAD='{"type":"address","data":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48","network":"mainnet","etherscan_api_key":"ETHERSCAN_API_KEY"}'
 ENCODED_PAYLOAD=$(echo -n "$PAYLOAD" | base64)
 
 grpcurl -plaintext \
@@ -67,7 +63,7 @@ The service accepts two types of inputs:
   "type": "address",
   "data": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
   "network": "mainnet",
-  "etherscan_key": "YOUR_API_KEY"
+  "etherscan_api_key": "ETHERSCAN_API_KEY"
 }
 ```
 
