@@ -9,7 +9,7 @@ cache_path = "cache"
 broadcast = "broadcast"
 
 # Compiler settings
-solc = "0.8.26"
+solc = "0.8.27"
 optimizer = true
 optimizer_runs = 200
 via_ir = false
@@ -19,8 +19,8 @@ auto_detect_remappings = true
 
 # Testing settings
 verbosity = 2
-fuzz = { runs = 256 }
-invariant = { runs = 256 }
+fuzz.runs = 256
+invariant.runs = 256
 ffi = true
 sender = "0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38"
 tx_origin = "0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38"
@@ -51,24 +51,22 @@ chain_id = 31337
 # base_rpc_url = "${BASE_RPC_URL}"
 
 # Formatter settings
-fmt = { 
-    line_length = 120, 
-    tab_width = 4, 
-    bracket_spacing = true,
-    int_types = "long",
-    multiline_func_header = "all",
-    quote_style = "double",
-    number_underscore = "thousands",
-    wrap_comments = true
-}
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = true
+int_types = "long"
+multiline_func_header = "all"
+quote_style = "double"
+number_underscore = "thousands"
+wrap_comments = true
 
 # Documentation settings
-doc = {
-    out = "docs",
-    title = "Fuzz-Aldrin Test Contracts",
-    book = "https://book.getfoundry.sh/",
-    homepage = "https://github.com/yourusername/Fuzz-Aldrin"
-}
+[doc]
+out = "docs"
+title = "Fuzz-Aldrin Test Contracts"
+book = "https://book.getfoundry.sh/"
+homepage = "https://github.com/yourusername/Fuzz-Aldrin"
 
 # Profile for testing vulnerable contracts
 [profile.vulnerable]
@@ -89,14 +87,18 @@ solc = "0.4.26"
 evm_version = "byzantium"
 
 [profile.modern]
-solc = "0.8.26"
+solc = "0.8.27"
 evm_version = "shanghai"
 
 # Remappings (add as needed)
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
+    "@openzeppelin-upgrades/=lib/openzeppelin-contracts-upgradeable/",
     "@chainlink/=lib/chainlink/",
-    "@uniswap/=lib/"
+    "@uniswap/=lib/",
+    "@eigenlayer-contracts/=lib/eigenlayer-contracts/",
+    "@hourglass-monorepo/=lib/hourglass-monorepo/",
+    "@project/=contracts/src/"
 ]
 
 # Ignore patterns

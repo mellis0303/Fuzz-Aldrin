@@ -1,0 +1,11 @@
+{
+  "network": "buildbear-sepolia-fork",
+  "chainId": 26804,
+  "rpcUrl": "https://rpc.buildbear.io/interesting-ironman-ad903c8a",
+  "contracts": {
+    "TaskMailbox": "",
+    "AVSTaskHook": "",
+    "TaskAVSRegistrar": ""
+  },
+  "deploymentBlock": 
+}
