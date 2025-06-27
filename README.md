@@ -25,13 +25,9 @@ brew install grpcurl
 
 Test with contract source code:
 ```bash
-# Create payload
 PAYLOAD='{"type":"source","data":"pragma solidity ^0.8.0;\ncontract Test {\n    uint256 public value;\n}"}'
-
-# Base64 encode the payload (required for gRPC)
 ENCODED_PAYLOAD=$(echo -n "$PAYLOAD" | base64)
 
-# Send request
 grpcurl -plaintext \
   -d "{\"task_id\": \"dGVzdC0xMjM=\", \"payload\": \"$ENCODED_PAYLOAD\"}" \
   localhost:8080 \
