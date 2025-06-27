@@ -1,877 +1,224 @@
-## ⚠️ Warning: This is Alpha, non audited code ⚠️
-Hourglass is in active development and is not yet audited. Use at your own risk.
+# Fuzz Aldrin
 
-# hourglass-avs-template
-
-## What is Hourglass?
-
-Hourglass is a framework for building a task-based EigenLayer AVS, providing AVS developers a batteries-included experience to get started quickly. It includes a set of tools and libraries that simplify the process of building, deploying, and managing AVS projects.
-
-![](docs/images/hourglass-architecture_v.01.0.svg)
-
-Hourglass as a framework has onchain and offchain components that work together to enable a task-based AVS.
-
-### Onchain Components
-
-#### TaskMailbox
-
-The TaskMailbox is a singleton eigenlayer hourglass contract on L1 or L2 that is responsible for:
-
-* Allowing users/apps to create tasks.
-* Managing the lifecycle of tasks.
-* Verifying the results of tasks and making it available for users/apps to query.
-* Allowing AVSs to manage their TaskMailbox configurations.
-
-#### TaskAVSRegistrar
-
-The TaskAVSRegistrar is an instanced (per-AVS) eigenlayer middleware contract on L1 that is responsible for:
-
-* Handling operator registration for specific operator sets of your AVS.
-* Providing the offchain components with BLS public keys and socket endpoints for the Aggregator and Executor operators.
-
-It works by default, but can be extended to include additional onchain logic for your AVS.
-
-#### AVSTaskHook
-
-The AVSTaskHook is an instanced (per-AVS) eigenlayer hourglass contract on L1 or L2 that is responsible for:
-
-* Validating the task lifecycle.
-* Creating fee markets for your AVS.
-
-It's empty by default and works out of the box, but can be extended to include additional onchain validation logic for your AVS.
-
-#### CertificateVerifier
-
-The CertificateVerifier is an instanced (per-AVS) eigenlayer middleware contract on L1 or L2 that is responsible for:
-
-* Verifying the validity of operator certificates.
-* Verifying stake threshold requirements for operator sets.
-
-#### Custom Contracts
-
-If your AVS has custom contracts that need to be built and compiled, place them in the `./contracts/src` directory.
+## Running the Service
 
 ```bash
-contracts
-|-- README.md
-|-- script
-|   `-- DeployMyContracts.s.sol
-|-- src
-|   |-- HelloWorld.sol
-|   |-- l1-contracts
-|   |   `-- TaskAVSRegistrar.sol
-|   `-- l2-contracts
-|       |-- AVSTaskHook.sol
-|       `-- BN254CertificateVerifier.sol
-`-- test
-    `-- TaskAVSRegistrar.t.sol
+# Build and run
+make build
+./bin/performer
+
+# Or use Docker
+docker run -p 8080:8080 audit-avs:latest
 ```
 
-After adding your contracts, you'll need up update the `script/DeployMyContracts.s.sol` script to correctly instantiate and deploy your contracts. `DeployMyContracts.s.sol` is specifically called during the `devkit avs devnet start` command and will receive the context of the other contracts that have been deployed.
+The service will listen on port **8080** for gRPC connections.
 
-As you can see in this HelloWorld example, we create new `HelloWorld` contract and then return some JSON output about it that is sent back to the Devkit CLI.
+## Interacting with the Service
 
-```solidity
-function run(string memory environment, string memory _context, address /* allocationManager */) public {
-        // Read the context
-        Context memory context = _readContext(environment, _context);
+### Using grpcurl (Command Line)
 
-        vm.startBroadcast(context.deployerPrivateKey);
-        console.log("Deployer address:", vm.addr(context.deployerPrivateKey));
+Install grpcurl:
+```bash
+# macOS
+brew install grpcurl
+```
 
-        //TODO: Implement custom contracts deployment
-        // CustomContract customContract = new CustomContract();
-        // console.log("CustomContract deployed to:", address(customContract));
-        HelloWorld helloWorld = new HelloWorld();
+Test with contract source code:
+```bash
+# Create payload
+PAYLOAD='{"type":"source","data":"pragma solidity ^0.8.0;\ncontract Test {\n    uint256 public value;\n}"}'
 
-        vm.stopBroadcast();
+# Base64 encode the payload (required for gRPC)
+ENCODED_PAYLOAD=$(echo -n "$PAYLOAD" | base64)
 
-        vm.startBroadcast(context.avsPrivateKey);
-        console.log("AVS address:", context.avs);
+# Send request
+grpcurl -plaintext \
+  -d "{\"task_id\": \"dGVzdC0xMjM=\", \"payload\": \"$ENCODED_PAYLOAD\"}" \
+  localhost:8080 \
+  eigenlayer.hourglass.v1.performer.PerformerService/ExecuteTask
+```
 
-        //TODO: Implement any additional AVS setup
+Test with contract address:
+```bash
+PAYLOAD='{"type":"address","data":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48","network":"mainnet","etherscan_key":"YOUR_API_KEY"}'
+ENCODED_PAYLOAD=$(echo -n "$PAYLOAD" | base64)
 
-        vm.stopBroadcast();
+grpcurl -plaintext \
+  -d "{\"task_id\": \"dGVzdC0xMjM=\", \"payload\": \"$ENCODED_PAYLOAD\"}" \
+  localhost:8080 \
+  eigenlayer.hourglass.v1.performer.PerformerService/ExecuteTask
+```
 
-        //TODO: Write to output file
-        Output[] memory outputs = new Output[](1);
-        // outputs[0] = Output({name: "CustomContract", address: address(customContract)});
-        // _writeOutputToJson(environment, outputs);
-        outputs[0] = Output({name: "HelloWorld", contractAddress: address(helloWorld)});
-        _writeOutputToJson(environment, outputs);
+## Input Format
+
+The service accepts two types of inputs:
+
+### 1. Source Code Input
+```json
+{
+  "type": "source",
+  "data": "pragma solidity ^0.8.0;\ncontract MyContract { ... }"
+}
+```
+
+### 2. Contract Address Input
+```json
+{
+  "type": "address",
+  "data": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  "network": "mainnet",
+  "etherscan_key": "YOUR_API_KEY"
+}
+```
+
+### Legacy Format
+For backward compatibility, you can also send raw Solidity code as the payload directly.
+
+## Response Format
+
+The service returns a comprehensive audit report:
+
+```json
+{
+  "contract_hash": "0xabc...",
+  "timestamp": "2024-01-01T00:00:00Z",
+  "total_findings": 5,
+  "critical_count": 0,
+  "high_count": 1,
+  "medium_count": 2,
+  "low_count": 2,
+  "info_count": 0,
+  "security_score": 85,
+  "findings": [...],
+  "gas_optimizations": [...],
+  "summary": "Security analysis complete...",
+  "analysis_modules": [
+    "Reentrancy Analysis",
+    "Access Control Analysis",
+    "Solidity Version & Best Practices",
+    ...
+  ]
+}
+```
+
+### Run Tests to See Examples
+```bash
+go test -v ./cmd/
+```
+
+**Supported Networks:**
+- `mainnet` / `ethereum` - Ethereum Mainnet
+- `goerli` - Ethereum Goerli Testnet  
+- `sepolia` - Ethereum Sepolia Testnet
+- `bsc` / `binance` - Binance Smart Chain
+- `bsc-testnet` - BSC Testnet
+- `arbitrum` - Arbitrum One
+- `arbitrum-sepolia` - Arbitrum Sepolia
+- `optimism` - Optimism Mainnet
+- `optimism-sepolia` - Optimism Sepolia
+- `base` - Base Mainnet
+- `base-sepolia` - Base Sepolia
+
+## Audit Report Structure
+
+### Contract Information
+```json
+{
+  "contract_info": {
+    "address": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+    "name": "Dai",
+    "network": "mainnet", 
+    "verified": true,
+    "compiler": "v0.5.12+commit.7709ece9",
+    "source_fetch_method": "etherscan_api"
+  }
+}
+```
+
+### Security Analysis
+```json
+{
+  "security_score": 85,
+  "total_findings": 3,
+  "critical_count": 0,
+  "high_count": 1,
+  "medium_count": 1,
+  "low_count": 1,
+  "findings": [
+    {
+      "id": "REENTRANCY_25",
+      "title": "Potential Reentrancy Vulnerability",
+      "severity": "HIGH",
+      "description": "External call detected before state changes",
+      "line_number": 25,
+      "code_snippet": "(bool success, ) = msg.sender.call{value: amount}(\"\");",
+      "suggestion": "Use the Checks-Effects-Interactions pattern",
+      "category": "Security",
+      "confidence": 0.8
     }
+  ]
+}
 ```
 
-### Offchain Components
+### Gas Optimizations
+```json
+{
+  "gas_optimizations": [
+    {
+      "description": "Array length accessed in loop condition",
+      "line_number": 42,
+      "current_pattern": "for (uint256 i = 0; i < addresses.length; i++)",
+      "optimized_pattern": "Cache array length in a variable before the loop",
+      "estimated_saving": "~200 gas per iteration"
+    }
+  ]
+}
+```
 
-#### Aggregator
+## Security Features
 
-The Aggregator is responsible for:
+### 12 Analysis Modules
+1. **Reentrancy Analysis** - Detects CEI pattern violations
+2. **Access Control Analysis** - Finds missing permissions  
+3. **Integer Overflow Analysis** - Checks arithmetic safety
+4. **Exception Handling Analysis** - Validates error handling
+5. **Front-running Analysis** - Identifies MEV vulnerabilities
+6. **Gas Optimization Analysis** - Suggests efficiency improvements
+7. **Return Value Analysis** - Checks unchecked calls
+8. **Timestamp Dependency Analysis** - Finds time manipulation risks
+9. **Delegate Call Safety Analysis** - Validates proxy patterns
+10. **Randomness Analysis** - Detects weak entropy sources
+11. **Upgradeability Analysis** - Checks proxy safety
+12. **Business Logic Analysis** - Finds logical flaws
 
-* Listening to events from the Mailbox contract on chain for new tasks
-* Discovering Executors by querying the AVSRegistrar contract (via the EigenLayer Allocation manager), retrieving their metadata containing a BLS public key and a "socket" (url) endpoint that references the Executor's gRPC server.
-* Distributing tasks to Executors by sending a gRPC request to the Executor's socket endpoint, including the task payload and a signature of the payload signed by the Aggregator. This is so the Executor can validate the message is coming from the expected Aggregator.
-* Aggregates results from Executors until a signing threshold has been met
-* Publish the result back to the Mailbox contract
+### Comprehensive Coverage
+- **Multi-network support**
+- **Verified contract fetching** via Etherscan APIs
+- **Multi-file contract parsing** 
+- **Severity scoring** (Critical → Info)
+- **Confidence ratings** per finding
+- **Gas optimization suggestions**
+- **Actionable remediation advice**
+- **JSON structured output**
 
-#### Executor
+## 🎯 Real-World Examples
 
-The Executor is responsible for:
-* Launching and managing Performer containers that execute the tasks
-* Listening to gRPC requests from the Aggregator for new tasks
-* Forwarding the task to the correct Performer
-* Signing the result of the task with its BLS private key and sending it back to the Aggregator
-
-
-#### Performer
-
-The Performer is the component the AVS is responsible for building. At a high level, it is a simple gRPC server that listens for tasks, runs them and returns the results to the Executor.
-
-The Hourglass framework provides all of the boilerplate and server code for your Performer; you simply need to fill in the logic to handle tasks for your AVS!
-
-## What does this template give me?
-
-This template provides a basic structure for building an AVS with the Hourglass framework. It includes:
-
-* A stub of Go code for your Performer to get you started. Simply fill in the commented out areas with your own AVS logic
-* Default `TaskAVSRegistrar` and `AVSTaskHook` avs contracts that work out of the box. Simply extend them if you need to add additional onchain logic.
-* All the dependent contracts for the framework to work and scripts to deploy them. The scripts will be managed by the Devkit CLI.
-* A docker-compose stack to run an Aggregator and Executor locally to test your AVS. Both the Aggregator and Executor will be run by EigenLayer Operators when you launch your AVS, so we've given you the full stack to run locally to make development and testing easier.
-* Hooks that integrate with the Devkit CLI. The Devkit CLI is a command line tool that will make your development experience faster and easier by automating common tasks like building, deploying, and running your AVS.
-
-
-## Basic Structure
-
-This template includes a basic Go program and smart contracts that uses the Hourglass framework to get you started along with some default configs.
+### Audit Popular DeFi Protocols
 
 ```bash
-.
-|-- .gitignore
-|-- .gitmodules
-|-- .devkit
-|   |-- scripts
-|       |-- build
-|       |-- call
-|       |-- deployContracts
-|       |-- getOperatorRegistrationMetadata
-|       |-- getOperatorSets
-|       |-- init
-|       |-- run
-|-- .hourglass
-|   |-- build.yaml
-|   |-- docker-compose.yml
-|   |-- context
-|   |   |-- devnet.yaml
-|   |-- config
-|   |   |-- aggregator.yaml
-|   |   |-- executor.yaml
-|   |-- scripts
-|       |-- build.sh
-|       |-- buildContainer.sh
-|       |-- init.sh
-|       |-- run.sh
-|-- Dockerfile
-|-- Makefile
-|-- README.md
-|-- avs
-|   |-- cmd
-|       |-- main.go
-|-- contracts
-|   |-- lib
-|   |-- script
-|   |   |-- devnet
-|   |       |-- deploy
-|   |       |   |-- DeployAVSL1Contracts.s.sol
-|   |       |   |-- DeployAVSL2Contracts.s.sol
-|   |       |   |-- DeployTaskMailbox.s.sol
-|   |       |-- output
-|   |       |   |-- deploy_avs_l1_output.json
-|   |       |   |-- deploy_avs_l2_output.json
-|   |       |   |-- deploy_hourglass_core_output.json
-|   |       |-- run
-|   |       |   |-- CreateTask.s.sol
-|   |       |-- setup
-|   |       |   |-- SetupAVSL1.s.sol
-|   |       |   |-- SetupAVSTaskMailboxConfig.s.sol
-|   |-- src
-|   |   |-- l1-contracts
-|   |   |   |-- TaskAVSRegistrar.sol
-|   |   |-- l2-contracts
-|   |   |   |-- AVSTaskHook.sol
-|   |   |   |-- BN254CertificateVerifier.sol
-|   |-- test
-|   |   |-- TaskAVSRegistrar.t.sol
-|   |-- foundry.toml
-|   |-- Makefile
-|-- go.mod
-|-- go.sum
+# Uniswap V2 Factory
+{"type":"address","data":"0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f","network":"mainnet"}
+
+# Compound cDAI
+{"type":"address","data":"0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643","network":"mainnet"}
+
+# AAVE Lending Pool
+{"type":"address","data":"0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9","network":"mainnet"}
 ```
-## ⚠️ Disclaimer: Closed Alpha Not Production Ready
-EigenLayer DevKit is currently in a closed alpha stage and is intended strictly for local experimentation and development. It has not been audited, and should not be used for use in any live environment, including public testnets or mainnet. Users are strongly discouraged from pushing generated projects to remote repositories without reviewing and sanitizing sensitive configuration files (e.g. devnet.yaml), which may contain private keys or other sensitive material.
 
-# EigenLayer Development Kit (DevKit) 🚀
-
-**A CLI toolkit for scaffolding, developing, and testing EigenLayer Autonomous Verifiable Services (AVS).**
-
-EigenLayer DevKit streamlines AVS development, enabling you to:
-* Quickly scaffold projects
-* Compile contracts
-* Run local networks
-* Simulate tasks.
-
-Use DevKit to get from AVS idea to Proof of Concept with a local testing environment that includes task simulation.
-
-> **Note:** The current DevKit features support local experimentation, development, and testing of AVS using the Hourglass task-based framework. We're actively expanding capabilities, so if there's a gap for your scenario, check out our roadmap see what's coming, or let us know what would support you in building AVS.
-
-![EigenLayer DevKit User Flow](assets/devkit-user-flow.png)
-
-## 🌟 Key Commands Overview
-
-| Command        | Description                                                       |
-|----------------|-------------------------------------------------------------------|
-| `devkit avs create`   | Scaffold a new AVS project                                        |
-| `devkit avs config`   | Configure your Project (`config/config.yaml`) |
-| `devkit avs context`   | Configure your environment and AVS (`config/devnet.yaml`...) |
-| `devkit avs build`    | Compile AVS smart contracts and binaries                          |
-| `devkit avs devnet`   | Manage local development network                                  |
-| `devkit avs call`     | Simulate AVS task execution locally                               |
-
-
----
-
-## 🚦 Getting Started
-
-### ✅ Prerequisites
-
-On MacOS or Debian, running:
+### Audit Layer 2 Contracts
 
 ```bash
-devkit avs create my-avs-project ./
+# Arbitrum Token Bridge  
+{"type":"address","data":"0x4Dbd4fc535Ac27206064B68FfCf827b0A60BAB3f","network":"arbitrum"}
 ```
-
-Installs all required dependencies. If you've already installed any, verify they match the versions below. On other OSes, install them manually:
-
-* [Docker (latest)](https://docs.docker.com/engine/install/)
-* [Foundry (latest)](https://book.getfoundry.sh/getting-started/installation)
-* [Go (v1.23.6)](https://go.dev/doc/install)
-* [Gomplate (v4)](https://docs.gomplate.ca/installing/)
-* [make (v4.3)](https://formulae.brew.sh/formula/make)
-* [jq (v1.7.1)](https://jqlang.org/download/)
-* [yq (v4.35.1)](https://github.com/mikefarah/yq/#install)
-* [zeus (v1.5.2)](https://github.com/Layr-Labs/zeus)
-
-### 📦 Installation
-
-To download a binary for the latest release, run:
-```bash
-# MacOS (Apple Silicon)
-mkdir -p $HOME/bin && curl -sL https://s3.amazonaws.com/eigenlayer-devkit-releases/v0.0.8/devkit-darwin-arm64-v0.0.8.tar.gz | tar xv -C "$HOME/bin"
-
-# MacOS (Intel)
-mkdir -p $HOME/bin && curl -sL https://s3.amazonaws.com/eigenlayer-devkit-releases/v0.0.8/devkit-darwin-amd64-v0.0.8.tar.gz | tar xv -C "$HOME/bin"
-
-# Linux (x86_64 / AMD64)
-mkdir -p $HOME/bin && curl -sL https://s3.amazonaws.com/eigenlayer-devkit-releases/v0.0.8/devkit-linux-amd64-v0.0.8.tar.gz | tar xv -C "$HOME/bin"
-
-# Linux (ARM64 / aarch64)
-mkdir -p $HOME/bin && curl -sL https://s3.amazonaws.com/eigenlayer-devkit-releases/v0.0.8/devkit-linux-arm64-v0.0.8.tar.gz | tar xv -C "$HOME/bin"
-```
-
-The binary will be installed inside the ~/bin directory.
-
-To add the binary to your path, run:
-```bash
-export PATH=$PATH:~/bin
-```
-
-To build and install the devkit cli from source:
-```bash
-mkdir -p $HOME/bin
-git clone https://github.com/Layr-Labs/devkit-cli
-cd devkit-cli
-make install
-export PATH=$PATH:~/bin
-```
-
-Verify your installation:
-```bash
-devkit --help
-```
-
-### 🔧 Shell Completion (Optional)
-
-Tab completion for devkit commands is automatically set up when you install with `make install`.
-
-**If you installed from source with `make install`:**
-- Completion is automatically configured and enabled! Test it immediately:
-```bash
-devkit <TAB>          # Should show: avs, keystore, version
-devkit avs <TAB>      # Should show subcommands
-```
-
-**If you downloaded the binary directly, manual setup:**
-
-**For Zsh (recommended for macOS):**
-```bash
-# Add to your ~/.zshrc:
-PROG=devkit
-source <(curl -s https://raw.githubusercontent.com/Layr-Labs/devkit-cli/main/autocomplete/zsh_autocomplete)
-
-exec zsh
-```
-
-**For Bash:**
-```bash
-# Add to your ~/.bashrc or ~/.bash_profile:
-PROG=devkit
-source <(curl -s https://raw.githubusercontent.com/Layr-Labs/devkit-cli/main/autocomplete/bash_autocomplete)
-
-source ~/.bashrc
-```
-
-**For local development/testing:**
-```bash
-# If you have the devkit-cli repo locally
-cd /path/to/devkit-cli
-PROG=devkit source autocomplete/zsh_autocomplete  # for zsh
-PROG=devkit source autocomplete/bash_autocomplete # for bash
-```
-
-After setup, you can use tab completion:
-```bash
-devkit <TAB>          # Shows: avs, keystore, version
-devkit avs <TAB>      # Shows: create, config, context, build, devnet, run, call, release, template
-devkit avs cr<TAB>    # Completes to: devkit avs create
-```
-
----
-
-## 🚧 Step-by-Step Guide
-
-### 1️⃣ Create a New AVS Project (`devkit avs create`)
-
-Sets up a new AVS project with the recommended structure, configuration files, and boilerplate code. This helps you get started quickly without needing to manually organize files or determine a layout. Details:
-
-* Initializes a new project based on the default Hourglass task-based architecture in Go. Refer to [here](https://github.com/Layr-Labs/hourglass-avs-template?tab=readme-ov-file#what-is-hourglass) for details on the Hourglass architecture.
-* Generates boilerplate code and default configuration.
-
-Projects are created by default in the current directory from where the below command is called.
-
-```bash
-devkit avs create my-avs-project ./
-cd my-avs-project
-# If dependencies we're installed during the creation process, you will need to source your bash/zsh profile:
-#  - if you use bashrc
-source ~/.bashrc
-#  - if you use bash_profile
-source ~/.bash_profile
-#  - if you use zshrc
-source ~/.zshrc
-#  - if you use zprofile
-source ~/.zprofile
-```
-
-> Note: Projects are created with a specific template version. You can view your current template version with `devkit avs template info` and upgrade later using `devkit avs template upgrade`.
-
-> \[!IMPORTANT]
-> All subsequent `devkit avs` commands must be run from the root of your AVS project—the directory containing the [config](https://github.com/Layr-Labs/devkit-cli/tree/main/config) folder. The `config` folder contains the base `config.yaml` with the `contexts` folder which houses the respective context yaml files, example `devnet.yaml`.
-
-<!-- Put in section about editing main.go file to replace comments with your actual business logic
--->
-
-### 2️⃣ Implement Your AVS Task Logic (`main.go`)
-After scaffolding your project, navigate into the project directory and begin implementing your AVS-specific logic. The core logic for task validation and execution lives in the `main.go` file inside the cmd folder:
-
-```bash
-cd my-avs-project/cmd
-```
-
-Within `main.go`, you'll find two critical methods on the `TaskWorker` type:
-- **`HandleTask(*TaskRequest)`**  
-  This is where you implement your AVS's core business logic. It processes an incoming task and returns a `TaskResponse`. Replace the placeholder comment with the actual logic you want to run during task execution.
-
-- **`ValidateTask(*TaskRequest)`**  
-  This method allows you to pre-validate a task before executing it. Use this to ensure your task meets your AVS's criteria (e.g., argument format, access control, etc.).
-
-These functions will be invoked automatically when using `devkit avs call`, enabling you to quickly test and iterate on your AVS logic.
-
-> **💡 Tip:**  
-> You can add logging inside these methods using the `tw.logger.Sugar().Infow(...)` lines to debug and inspect task input and output during development.
-
-### 3️⃣ Configure Your AVS (`devkit avs config` & `devkit avs context`)
-
-<!-- TODO: Make it very clear and very specific that the one field we need to change is the fork_url and that they are in charge of supplying this.
-Also, keep stuff at the top about introducing config yaml files and what they do.
--->
-
-Before running your AVS, you'll need to configure both project-level and context-specific settings. This is done through two configuration files:
-
-- **`config.yaml`**  
-  Defines project-wide settings such as AVS name, version, and available context names.  
-- **`contexts/<context>.yaml`**  
-  Contains environment-specific settings for a given context (e.g., `devnet`), including the Ethereum fork URL, block height, operator keys, AVS keys, and other runtime parameters.
-
-You can view or modify these configurations using the DevKit CLI or by editing the files manually.
-
----
-
-#### View current settings
-
-- **Project-level**  
-  ```bash  
-  devkit avs config --list
-  ```
-
-- **Context-specific**  
-  ```bash  
-  devkit avs context --list  
-  devkit avs context --context devnet --list  
-  ```
-
-#### Edit settings directly via CLI
-
-- **Project-level**  
-  ```bash  
-  devkit avs config --edit  
-  ```
-
-- **Context-specific**  
-  ```bash  
-  devkit avs context --edit  
-  devkit avs context --context devnet --edit  
-  ```
-
-#### Set values via CLI flags
-
-- **Project-level**
-  ```bash
-  devkit avs config --set project.name="My new name" project.version="0.0.2"
-  ```
-
-- **Context-specific**
-  ```bash
-  devkit avs context --set operators.0.address="0xabc..." operators.0.ecdsa_key="0x123..."
-  devkit avs context --context devnet --set operators.0.address="0xabc..." operators.0.ecdsa_key="0x123..."
-  ```
-
-Alternatively, you can manually edit `config.yaml` or the `contexts/*.yaml` files in the text editor of your choice.
-
-> [!IMPORTANT]
-> All `devkit avs` commands must be run from the **root of your AVS project** — the directory containing the `config` folder.
-
-Before launching your local devnet, you must set valid Ethereum fork URLs to define the chain state your AVS will simulate against. These values are loaded from your `.env` file and automatically applied to your environment.
-
-To configure them:
-
-```bash
-cp .env.example .env
-# edit `.env` and set your L1_FORK_URL and L2_FORK_URL before proceeding
-```
-
-Use any popular RPC provider (e.g., QuickNode, Alchemy) to obtain the URLs.
-
-This step is essential for simulating your AVS environment in a fully self-contained way, enabling fast iteration on your AVS business logic without needing to deploy to testnet/mainnet or coordinate with live operators.
-
-### 4️⃣ Build Your AVS (`devkit avs build`)
-
-Compiles your AVS contracts and offchain binaries. Required before running a devnet or simulating tasks to ensure all components are built and ready.
-
-* Compiles smart contracts using Foundry.
-* Builds operator, aggregator, and AVS logic binaries.
-
-Ensure you're in your project directory before running:
-
-```bash
-devkit avs build
-```
-
-### 5️⃣ Launch Local DevNet (`devkit avs devnet`)
-
-Starts a local devnet to simulate the full AVS environment. This step deploys contracts, registers operators, and runs offchain infrastructure, allowing you to test and iterate without needing to interact with testnet or mainnet.
-
-* Forks Ethereum holesky using a fork URL (provided by you) and a block number. These URLs CAN be set in the `config/context/devnet.yaml`, but we recommend placing them in a `.env` file which will take precedence over `config/context/devnet.yaml`. Please see `.env.example`.
-* Automatically funds wallets (`operator_keys` and `submit_wallet`) if balances are below `10 ether`.
-* Setup required `AVS` contracts.
-* Register `AVS` and `Operators`.
-
-In your project directory, run:
-
-```bash
-devkit avs devnet start
-```
-
-> \[!IMPORTANT]
-> Please ensure your Docker daemon is running before running this command.
-
-DevNet management commands:
-
-| Command | Description                                                             |
-| ------- | -------------------------------------------                             |
-| `start` | Start local Docker containers and contracts                             |
-| `stop`  | Stop and remove container from the avs project this command is called   |
-| `list`  | List active containers and their ports                                  |
-| `stop --all`  | Stops all devkit devnet containers that are currently currening                                  |
-| `stop --project.name`  | Stops the specific project's devnet                                  |
-| `stop --port`  | Stops the specific port .ex: `stop --port 8545`                                  |
-
-### 6️⃣ Simulate Task Execution (`devkit avs call`)
-
-Triggers task execution through your AVS, simulating how a task would be submitted, processed, and validated. Useful for testing end-to-end behavior of your logic in a local environment.
-
-* Simulate the full lifecycle of task submission and execution.
-* Validate both off-chain and on-chain logic.
-* Review detailed execution results.
-
-Run this from your project directory:
-
-```bash
-devkit avs call -- signature="(uint256,string)" args='(5,"hello")'
-```
-
-Optionally, submit tasks directly to the on-chain TaskMailBox contract via a frontend or another method for more realistic testing scenarios.
-
----
-
-## Optional Commands
-
-### Start offchain AVS infrastructure (`devkit avs run`)
-
-Run your offchain AVS components locally.
-
-* Initializes the Aggregator and Executor Hourglass processes.
-
-This step is optional. The devkit `devkit avs devnet start` command already starts these components. However, you may choose to run this separately if you want to start the offchain processes without launching a local devnet — for example, when testing against a testnet deployment.
-
-> Note: Testnet support is not yet implemented, but this command is structured to support such workflows in the future.
-
-```bash
-devkit avs run
-```
-
-### Deploy AVS Contracts (`devkit avs deploy-contract`)
-
-Deploy your AVS's onchain contracts independently of the full devnet setup.
-
-This step is **optional**. The `devkit avs devnet start` command already handles contract deployment as part of its full setup. However, you may choose to run this command separately if you want to deploy contracts without launching a local devnet — for example, when preparing for a testnet deployment.
-
-> Note: Testnet support is not yet implemented, but this command is structured to support such workflows in the future.
-
-```bash
-devkit avs deploy-contract
-```
-
-### Create Operator Keys (`devkit avs keystore`)
-Create and read keystores for bn254 private keys using the CLI. 
-
-- To create a keystore
-```bash
-devkit keystore create --key --path --password
-```
-
-- To read an existing keystore
-```bash
-devkit keystore read --path --password
-```
-
-**Flag Descriptions**
-- **`key`**: Private key in BigInt format . Example: `5581406963073749409396003982472073860082401912942283565679225591782850437460` 
-- **`path`**: Path to the json file. It needs to include the filename . Example: `./keystores/operator1.keystore.json`
-- **`password`**: Password to encrypt/decrypt the keystore.
-
-### Template Management (`devkit avs template`)
-
-Manage your project templates to stay up-to-date with the latest features and improvements.
-
-* View current template information
-* Upgrade your project to a newer template version
-
-Subcommands:
-
-| Command | Description |
-| ------- | ----------- |
-| `info` | Display information about the current project template |
-| `upgrade` | Upgrade project to a newer template version |
-
-View template information:
-```bash
-devkit avs template info
-```
-
-Upgrade to a specific template version (tag, branch, or commit hash):
-```bash
-devkit avs template upgrade --version v1.0.0
-```
-
-### 📖 Logging (`--verbose`)
-
-<!-- 
-@TODO: bring this back when we reintroduce config log levels
-Configure logging levels through `config.yaml`:
-
-```yaml
-log:
-  level: info  # Options: "info", "debug", "warn", "error"
-``` -->
-
-To enable detailed logging during commands:
-
-```bash
-devkit avs build --verbose
-```
-
----
-## Upgrade process
-
-
-### Upgrading the Devkit CLI
-
-To upgrade the Devkit CLI to the latest version, find the [latest release](releases) you want to download and re-run the curl install command:
-
-```bash
-VERSION=v0.0.8
-ARCH=$(uname -m | tr '[:upper:]' '[:lower:]')
-DISTRO=$(uname -s | tr '[:upper:]' '[:lower:]')
-
-mkdir -p $HOME/bin
-curl -sL "https://s3.amazonaws.com/eigenlayer-devkit-releases/${VERSION}/devkit-${DISTRO}-${ARCH}-${VERSION}.tar.gz" | tar xv -C "$HOME/bin"
-
-```
-
-### Upgrading your template
-
-To upgrade the template you created your project with (by calling `devkit avs create`) you can use the `devkit avs template` subcommands.
-
-**_View which version you're currently using_**
-
-```bash
-devkit avs template info
-
-2025/05/22 14:42:36 Project template information:
-2025/05/22 14:42:36   Project name: <your project>
-2025/05/22 14:42:36   Template URL: https://github.com/Layr-Labs/hourglass-avs-template
-2025/05/22 14:42:36   Version: v0.0.12
-```
-
-**_Upgrade to a newer version_**
-
-To upgrade to a newer version you can run:
-
-```bash
-devkit avs template upgrade --version <version>
-```
-
-More often than not, you'll want to use tag corresponding to your template's release. You may also provide a branch name or commit hash to upgrade to.
-
-_Please consult your template's docs for further information on how the upgrade process works._
-
----
-
-## Telemetry 
-
-DevKit includes optional telemetry to help us improve the developer experience. We collect anonymous usage data about commands used, performance metrics, and error patterns - but never personal information, code content, or sensitive data.
-
-### 🎯 First-Time Setup
-
-When you first run DevKit, you'll see a telemetry consent prompt:
-
-```
-🎯 Welcome to EigenLayer DevKit!
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 Help us improve DevKit by sharing anonymous usage data
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-We'd like to collect anonymous usage data to help us improve DevKit.
-
-This includes:
-  • Commands used (e.g., 'devkit avs create', 'devkit avs build')
-  • Error counts and types (to identify common issues)
-  • Performance metrics (command execution times)
-  • System information (OS, architecture)
-
-We do NOT collect:
-  • Personal information
-  • Private keys or sensitive data
-
-You can change this setting anytime with:
-  devkit telemetry --enable   # Enable telemetry
-  devkit telemetry --disable  # Disable telemetry
-
-Would you like to enable telemetry? [Y/n]:
-```
-
-Your choice is saved globally and will be inherited by all future projects.
-
-#### 🤖 Non-Interactive Environments
-
-For CI/CD pipelines and automated environments, DevKit provides several options:
-
-**Enable telemetry without prompting:**
-```bash
-devkit --enable-telemetry avs create my-project 
-```
-
-**Disable telemetry without prompting:**
-```bash
-devkit --disable-telemetry avs create my-project 
-```
-
-**CI environments** (when `CI=true` environment variable is set):
-- DevKit automatically detects CI environments and defaults to disabled telemetry
-- No prompting occurs, preventing pipeline hangs
-- You can still explicitly enable with `--enable-telemetry` if desired
-
-**Non-interactive terminals:**
-- DevKit detects when stdin is unavailable and skips prompting
-- Defaults to disabled telemetry with informational messages
-
-### 📊 What Data We Collect
-
-**✅ We collect:**
-- Command names (e.g., `devkit avs create`, `devkit avs build`)
-- Success/failure rates and error types
-- Command execution duration
-- Operating system and architecture
-- Anonymous project identifiers (UUIDs)
-
-**❌ We do NOT collect:**
-- Personal information or identifiable data
-- Code content, file names, or project details
-- Private keys, passwords, or sensitive data
-
-### 🛠 Managing Telemetry Settings
-
-#### Global Settings (affects all projects)
-
-```bash
-# Enable telemetry globally (new projects inherit this)
-devkit telemetry --enable --global
-
-# Disable telemetry globally  
-devkit telemetry --disable --global
-
-# Check global telemetry status
-devkit telemetry --status --global
-```
-
-#### Project-Level Settings (current project only)
-
-```bash
-# Enable telemetry for current project only
-devkit telemetry --enable
-
-# Disable telemetry for current project only
-devkit telemetry --disable
-
-# Check current project telemetry status
-devkit telemetry --status
-```
-
-### 📋 How Telemetry Precedence Works
-
-1. **Project setting exists?** → Use project setting
-2. **No project setting?** → Use global setting  
-3. **No settings at all?** → Default to disabled
-
-This means:
-- You can set a global default for all projects
-- Individual projects can override the global setting
-- Existing projects keep their current settings when you change global settings
-
-### 📁 Configuration Files
-
-**Global config:** `~/.config/devkit/config.yaml`
-```yaml
-first_run: false
-telemetry_enabled: true
-```
-
-**Project config:** `<project-dir>/.config.devkit.yml`
-```yaml
-project_uuid: "12345678-1234-1234-1234-123456789abc"
-telemetry_enabled: true
-```
-
-### 🔄 Common Workflows
-
-**Set global default for your organization:**
-```bash
-# Disable telemetry for all future projects
-devkit telemetry --disable --global
-```
-
-**Override for a specific project:**
-```bash
-# In project directory - enable telemetry just for this project
-cd my-avs-project
-devkit telemetry --enable
-```
-
-**Check what's actually being used:**
-```bash
-# Shows both project and global settings for context
-devkit telemetry --status
-```
-
-**Set global default for your organization:**
-```bash
-# Disable telemetry for all future projects
-devkit telemetry --disable --global
-```
-
-**Override for a specific project:**
-```bash
-# In project directory - enable telemetry just for this project
-cd my-avs-project
-devkit telemetry --enable
-```
-
-**Check what's actually being used:**
-```bash
-# Shows both project and global settings for context
-devkit telemetry --status
-```
-
-### 🏢 Enterprise Usage
-
-For enterprise environments, you can:
-
-1. **Set organization-wide defaults** by configuring global settings
-2. **Override per-project** as needed for specific teams or compliance requirements
-3. **Completely disable** telemetry with `devkit telemetry --disable --global`
-
-The telemetry system respects both user choice and organizational policies.
-
-## 🔧 Compatibility Notes
-- **Linux**: Primarily tested on Debian/Ubuntu only.
-- **macOS**: Supports both Intel and Apple Silicon
-
-## 🤝 Contributing
-
-Contributions are welcome! Please open an issue to discuss significant changes before submitting a pull request.
-
-## 🙋 Help (Support)
-Please post any questions or concerns to the [Issues](https://github.com/Layr-Labs/devkit-cli/issues) tab in this repo. We will respond to your issue as soon as our team has capacity, however we are not yet able to offer an SLA for response times. Please do not use this project for Production, Mainnet, or time sensitive use cases at this time.
-
----
-
-## For DevKit Maintainers: DevKit Release Process
-To release a new version of the CLI, follow the steps below:
-> Note: You need to have write permission to this repo to release new version
-
-1. Checkout the main branch and pull the latest changes:
-    ```bash
-    git checkout main
-    git pull origin main
-    ```
-2. In your local clone, create a new release tag using the following command:
-    ```bash
-     git tag v<version> -m "Release v<version>"
-    ```
-3. Push the tag to the repository using the following command:
-    ```bash
-    git push origin v<version>
-    ```
-
-4. This will automatically start the release process in the [GitHub Actions](https://github.com/Layr-Labs/eigenlayer-cli/actions/workflows/release.yml) and will create a draft release to the [GitHub Releases](https://github.com/Layr-Labs/eigenlayer-cli/releases) with all the required binaries and assets
-5. Check the release notes and add any notable changes and publish the release

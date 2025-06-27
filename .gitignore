@@ -1,30 +1,241 @@
+# =============================================================================
+# Go
+# =============================================================================
 # Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-devkit
 
-# Build outputs
-/bin/
-/out/
+# Test binary, built with `go test -c`
 *.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
 
 # Dependency directories (if you're not committing vendor)
 vendor/
 
-# Go module caches (optional, as these are local)
-# /go/pkg/
+# Go workspace file
+go.work
+go.work.sum
 
-# OS-specific files
-.DS_Store
+# Build outputs
+/bin/
+/out/
+/build/
+/dist/
+
+# =============================================================================
+# Solidity & Blockchain
+# =============================================================================
+# Hardhat
+node_modules/
+cache/
+artifacts/
+typechain/
+typechain-types/
+
+# Foundry
+/lib/
+/cache/
+/out/
+broadcast/
+.env
+
+# Truffle
+build/
+contracts/build/
+
+# Remix
+.deps/
+
+# Coverage reports
+coverage/
+coverage.json
+*.lcov
+
+# Gas reports
+.gas-snapshot
+gas-report.txt
+
+# =============================================================================
+# Security & Secrets
+# =============================================================================
+# Environment variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.env.staging
+
+# Private keys and keystores (be extra careful with these)
+*.pem
+*.key
+*.p12
+*.pfx
+# Uncomment the line below if you don't want to commit keystores
+# keystores/
+# *.keystore.json
+
+# Mnemonic phrases
+mnemonic.txt
+seed.txt
+
+# =============================================================================
+# Operating System
+# =============================================================================
+# Windows
 Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
 
-# Editor and IDE files
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# Editors & IDEs
+# =============================================================================
+# Visual Studio Code
 .vscode/
+*.code-workspace
+
+# IntelliJ IDEA
 .idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Eclipse
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+.metadata
+bin/
+tmp/
+*.tmp
+*.bak
 *.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# Vim
+*.swp
+*.swo
+*~
+tags
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Sublime Text
+*.tmlanguage.cache
+*.tmPreferences.cache
+*.stTheme.cache
+*.sublime-workspace
+*.sublime-project
+
+# =============================================================================
+# Development Tools
+# =============================================================================
+# Testing
+coverage.txt
+coverage.out
+coverage.html
+*.cover
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+.nyc_output
+
+# Linting
+.eslintcache
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary folders
+tmp/
+temp/
+.tmp/
+.temp/
+
+# =============================================================================
+# Project Specific
+# =============================================================================
+# DevKit
+devkit
+.devkit/
+.hourglass/
 
 # Release outputs
 temp_external/
@@ -33,5 +244,62 @@ temp_external/
 config/contexts/**/*
 !config/contexts/devnet.yaml
 
-# Environment
-.env
+# Local configuration files
+config.local.yaml
+*.local.yaml
+*.local.yml
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.backup
+*.bak
+*.orig
+
+# Archive files
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# =============================================================================
+# Documentation
+# =============================================================================
+# Generated documentation
+docs/build/
+site/
+
+# =============================================================================
+# CI/CD
+# =============================================================================
+.github/workflows/secrets/
+
+# =============================================================================
+# Miscellaneous
+# =============================================================================
+# Ignore all files without extensions in root (likely binaries)
+/*
+!*/
+!*.*
+!/Makefile
+!/Dockerfile
+!/LICENSE
+!/README*
+!/CHANGELOG*
+!/CONTRIBUTING*
+!/CODEOWNERS
+
+# But allow specific files we want to track
+!*.go
+!*.sol
+!*.yaml
+!*.yml
+!*.json
+!*.md
+!*.txt
+!*.toml

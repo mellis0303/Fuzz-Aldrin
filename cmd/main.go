@@ -19,12 +19,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Enhanced Smart Contract Security Audit AVS
-// Now supports both direct source code input AND contract address fetching
-// This AVS performs multi-layered security analysis on Solidity smart contracts
-// providing detailed vulnerability assessments, gas optimization suggestions,
-// and security best practices compliance checks.
-
 type AuditSeverity string
 
 const (
@@ -82,10 +76,10 @@ type AuditReport struct {
 }
 
 type TaskInput struct {
-	Type         string `json:"type"`                    // "address" or "source"
-	Data         string `json:"data"`                    // contract address or source code
-	Network      string `json:"network"`                 // "mainnet", "goerli", "sepolia", etc.
-	EtherscanKey string `json:"etherscan_key,omitempty"` // optional API key
+	Type         string `json:"type"`
+	Data         string `json:"data"`
+	Network      string `json:"network"`
+	EtherscanKey string `json:"etherscan_key,omitempty"`
 }
 
 type EtherscanResponse struct {
@@ -123,18 +117,12 @@ func NewContractAuditor(logger *zap.Logger) *ContractAuditor {
 }
 
 func (ca *ContractAuditor) ValidateTask(t *performerV1.TaskRequest) error {
-	ca.logger.Sugar().Infow("Validating smart contract audit task",
-		zap.String("task_id", string(t.TaskId)),
-	)
-
 	if len(t.Payload) == 0 {
 		return fmt.Errorf("task data cannot be empty - expected contract address or Solidity source code")
 	}
 
-	// Try to parse as TaskInput JSON first
 	var taskInput TaskInput
 	if err := json.Unmarshal(t.Payload, &taskInput); err == nil {
-		// Structured input validation
 		if taskInput.Type == "" {
 			return fmt.Errorf("input type must be specified: 'address' or 'source'")
 		}
@@ -146,16 +134,13 @@ func (ca *ContractAuditor) ValidateTask(t *performerV1.TaskRequest) error {
 		}
 
 		if taskInput.Type == "address" {
-			// Validate Ethereum address format
 			if !ca.isValidEthereumAddress(taskInput.Data) {
 				return fmt.Errorf("invalid Ethereum address format: %s", taskInput.Data)
 			}
-			// Set default network if not specified
 			if taskInput.Network == "" {
 				taskInput.Network = "mainnet"
 			}
 		} else if taskInput.Type == "source" {
-			// Validate Solidity source code
 			if !strings.Contains(taskInput.Data, "pragma solidity") && !strings.Contains(taskInput.Data, "contract ") {
 				return fmt.Errorf("input does not appear to contain valid Solidity contract code")
 			}
@@ -164,7 +149,6 @@ func (ca *ContractAuditor) ValidateTask(t *performerV1.TaskRequest) error {
 		// Fallback: treat as raw source code for backward compatibility
 		contractCode := string(t.Payload)
 		if !strings.Contains(contractCode, "pragma solidity") && !strings.Contains(contractCode, "contract ") {
-			// Check if it might be an address
 			if ca.isValidEthereumAddress(contractCode) {
 				return fmt.Errorf("detected contract address but expected structured input. Use JSON format: {\"type\":\"address\",\"data\":\"%s\",\"network\":\"mainnet\"}", contractCode)
 			}
@@ -172,47 +156,26 @@ func (ca *ContractAuditor) ValidateTask(t *performerV1.TaskRequest) error {
 		}
 	}
 
-	ca.logger.Sugar().Infow("Contract audit task validation passed",
-		zap.String("task_id", string(t.TaskId)),
-		zap.Int("payload_length", len(t.Payload)),
-	)
-
 	return nil
 }
 
 func (ca *ContractAuditor) HandleTask(t *performerV1.TaskRequest) (*performerV1.TaskResponse, error) {
-	ca.logger.Sugar().Infow("Starting comprehensive smart contract audit",
-		zap.String("task_id", string(t.TaskId)),
-	)
-
 	var contractCode string
 	var contractInfo *ContractInfo
 	var err error
 
-	// Try to parse as structured input
 	var taskInput TaskInput
 	if err := json.Unmarshal(t.Payload, &taskInput); err == nil {
-		// Structured input processing
 		if taskInput.Type == "address" {
-			ca.logger.Sugar().Infow("Fetching contract source code from blockchain",
-				zap.String("address", taskInput.Data),
-				zap.String("network", taskInput.Network),
-			)
-
 			contractCode, contractInfo, err = ca.fetchContractSource(taskInput.Data, taskInput.Network, taskInput.EtherscanKey)
 			if err != nil {
-				ca.logger.Error("Failed to fetch contract source code",
-					zap.String("address", taskInput.Data),
-					zap.Error(err),
-				)
 				return nil, fmt.Errorf("failed to fetch contract source code for address %s: %w", taskInput.Data, err)
 			}
 		} else {
-			// Direct source code
 			contractCode = taskInput.Data
 			contractInfo = &ContractInfo{
 				SourceFetch: "direct_input",
-				Verified:    false, // Unknown verification status for direct input
+				Verified:    false,
 			}
 		}
 	} else {
@@ -224,18 +187,14 @@ func (ca *ContractAuditor) HandleTask(t *performerV1.TaskRequest) (*performerV1.
 		}
 	}
 
-	// Generate contract hash for tracking
 	hash := sha256.Sum256([]byte(contractCode))
 	contractHash := hex.EncodeToString(hash[:])
 
-	// Perform comprehensive audit analysis
 	report := ca.performComprehensiveAudit(contractCode, contractHash)
 	report.ContractInfo = contractInfo
 
-	// Serialize audit report
 	reportBytes, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		ca.logger.Error("Failed to serialize audit report", zap.Error(err))
 		return nil, fmt.Errorf("failed to serialize audit report: %w", err)
 	}
 
@@ -253,27 +212,22 @@ func (ca *ContractAuditor) HandleTask(t *performerV1.TaskRequest) (*performerV1.
 }
 
 func (ca *ContractAuditor) isValidEthereumAddress(address string) bool {
-	// Remove 0x prefix if present
 	addr := strings.TrimPrefix(address, "0x")
 
-	// Check if it's exactly 40 hex characters
 	if len(addr) != 40 {
 		return false
 	}
 
-	// Check if all characters are valid hex
 	matched, _ := regexp.MatchString("^[a-fA-F0-9]+$", addr)
 	return matched
 }
 
 func (ca *ContractAuditor) fetchContractSource(address, network, apiKey string) (string, *ContractInfo, error) {
-	// Determine Etherscan base URL based on network
 	baseURL := ca.getEtherscanURL(network)
 	if baseURL == "" {
 		return "", nil, fmt.Errorf("unsupported network: %s", network)
 	}
 
-	// Build request URL
 	params := url.Values{}
 	params.Set("module", "contract")
 	params.Set("action", "getsourcecode")
@@ -284,13 +238,6 @@ func (ca *ContractAuditor) fetchContractSource(address, network, apiKey string) 
 
 	requestURL := fmt.Sprintf("%s?%s", baseURL, params.Encode())
 
-	ca.logger.Sugar().Debugw("Fetching contract source",
-		zap.String("url", requestURL),
-		zap.String("address", address),
-		zap.String("network", network),
-	)
-
-	// Make HTTP request
 	resp, err := ca.httpClient.Get(requestURL)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to fetch contract data: %w", err)
@@ -301,13 +248,11 @@ func (ca *ContractAuditor) fetchContractSource(address, network, apiKey string) 
 		return "", nil, fmt.Errorf("etherscan API returned status %d", resp.StatusCode)
 	}
 
-	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// Parse Etherscan response
 	var etherscanResp EtherscanResponse
 	if err := json.Unmarshal(body, &etherscanResp); err != nil {
 		return "", nil, fmt.Errorf("failed to parse etherscan response: %w", err)
@@ -327,16 +272,12 @@ func (ca *ContractAuditor) fetchContractSource(address, network, apiKey string) 
 		return "", nil, fmt.Errorf("contract source code not available for address %s (not verified)", address)
 	}
 
-	// Handle different source code formats
 	sourceCode := result.SourceCode
 
-	// Some contracts return source code wrapped in extra braces
 	if strings.HasPrefix(sourceCode, "{{") && strings.HasSuffix(sourceCode, "}}") {
-		// This is a multi-file source code format, extract main contract
 		sourceCode = ca.extractMainContractFromMultiFile(sourceCode)
 	}
 
-	// Create contract info
 	contractInfo := &ContractInfo{
 		Address:     address,
 		Name:        result.ContractName,
@@ -360,58 +301,40 @@ func (ca *ContractAuditor) getEtherscanURL(network string) string {
 	switch strings.ToLower(network) {
 	case "mainnet", "ethereum":
 		return "https://api.etherscan.io/api"
-	case "goerli":
-		return "https://api-goerli.etherscan.io/api"
 	case "sepolia":
 		return "https://api-sepolia.etherscan.io/api"
-	case "polygon":
-		return "https://api.polygonscan.com/api"
-	case "mumbai":
-		return "https://api-testnet.polygonscan.com/api"
 	case "bsc", "binance":
 		return "https://api.bscscan.com/api"
 	case "bsc-testnet":
 		return "https://api-testnet.bscscan.com/api"
 	case "arbitrum":
 		return "https://api.arbiscan.io/api"
-	case "arbitrum-goerli":
-		return "https://api-goerli.arbiscan.io/api"
+	case "arbitrum-sepolia":
+		return "https://api-sepolia.arbiscan.io/api"
 	case "optimism":
 		return "https://api-optimistic.etherscan.io/api"
-	case "optimism-goerli":
-		return "https://api-goerli-optimistic.etherscan.io/api"
+	case "optimism-sepolia":
+		return "https://api-sepolia-optimistic.etherscan.io/api"
 	case "base":
 		return "https://api.basescan.org/api"
-	case "base-goerli":
-		return "https://api-goerli.basescan.org/api"
+	case "base-sepolia":
+		return "https://api-sepolia.basescan.org/api"
 	default:
 		return ""
 	}
 }
 
 func (ca *ContractAuditor) extractMainContractFromMultiFile(sourceCode string) string {
-	// For multi-file contracts, Etherscan returns JSON with file structure
-	// We'll extract the main contract source for analysis
-
-	// Try to parse as JSON
 	var multiFile map[string]interface{}
 	if err := json.Unmarshal([]byte(sourceCode), &multiFile); err != nil {
-		// If it's not JSON, return as-is
 		return sourceCode
 	}
 
-	// Look for sources field
 	if sources, ok := multiFile["sources"].(map[string]interface{}); ok {
-		// Find the main contract file (usually the one with the contract name)
-		for filename, fileData := range sources {
+		for _, fileData := range sources {
 			if fileDataMap, ok := fileData.(map[string]interface{}); ok {
 				if content, ok := fileDataMap["content"].(string); ok {
-					// Return the first file with substantial content
 					if len(content) > 100 && strings.Contains(content, "contract ") {
-						ca.logger.Sugar().Infow("Extracted main contract from multi-file source",
-							zap.String("filename", filename),
-							zap.Int("content_length", len(content)),
-						)
 						return content
 					}
 				}
@@ -419,7 +342,6 @@ func (ca *ContractAuditor) extractMainContractFromMultiFile(sourceCode string) s
 		}
 	}
 
-	// Fallback: return original if we can't parse
 	return sourceCode
 }
 
@@ -434,10 +356,9 @@ func (ca *ContractAuditor) performComprehensiveAudit(contractCode, contractHash 
 
 	lines := strings.Split(contractCode, "\n")
 
-	// Run comprehensive analysis modules
 	ca.analyzeReentrancyVulnerabilities(contractCode, lines, report)
 	ca.analyzeAccessControl(contractCode, lines, report)
-	ca.analyzeIntegerOverflows(contractCode, lines, report)
+	ca.analyzeSolidityVersion(contractCode, lines, report)
 	ca.analyzeUnhandledExceptions(contractCode, lines, report)
 	ca.analyzeFrontRunningVulnerabilities(contractCode, lines, report)
 	ca.analyzeGasOptimizations(contractCode, lines, report)
@@ -448,7 +369,6 @@ func (ca *ContractAuditor) performComprehensiveAudit(contractCode, contractHash 
 	ca.analyzeUpgradeability(contractCode, lines, report)
 	ca.analyzeBusinessLogic(contractCode, lines, report)
 
-	// Finalize report
 	ca.finalizeReport(report)
 
 	return report
@@ -457,7 +377,6 @@ func (ca *ContractAuditor) performComprehensiveAudit(contractCode, contractHash 
 func (ca *ContractAuditor) analyzeReentrancyVulnerabilities(contractCode string, lines []string, report *AuditReport) {
 	report.AnalysisModules = append(report.AnalysisModules, "Reentrancy Analysis")
 
-	// Pattern: external calls before state changes
 	externalCallPattern := regexp.MustCompile(`\.call\(|\.send\(|\.transfer\(|\.delegatecall\(`)
 	stateChangePattern := regexp.MustCompile(`\w+\s*=|mapping\(.*\)\[.*\]\s*=`)
 
@@ -473,7 +392,6 @@ func (ca *ContractAuditor) analyzeReentrancyVulnerabilities(contractCode string,
 		}
 	}
 
-	// Check for potential reentrancy
 	for _, callLine := range externalCallLines {
 		for _, stateLine := range stateChangeLines {
 			if stateLine > callLine && stateLine-callLine < 10 {
@@ -492,7 +410,6 @@ func (ca *ContractAuditor) analyzeReentrancyVulnerabilities(contractCode string,
 		}
 	}
 
-	// Check for missing reentrancy guards
 	if !strings.Contains(contractCode, "nonReentrant") && len(externalCallLines) > 0 {
 		report.Findings = append(report.Findings, AuditFinding{
 			ID:          "MISSING_REENTRANCY_GUARD",
@@ -509,16 +426,13 @@ func (ca *ContractAuditor) analyzeReentrancyVulnerabilities(contractCode string,
 func (ca *ContractAuditor) analyzeAccessControl(contractCode string, lines []string, report *AuditReport) {
 	report.AnalysisModules = append(report.AnalysisModules, "Access Control Analysis")
 
-	// Check for functions without access modifiers
 	functionPattern := regexp.MustCompile(`function\s+(\w+)\s*\([^)]*\)\s*(public|external)`)
 	modifierPattern := regexp.MustCompile(`(onlyOwner|onlyAdmin|require\(.*msg\.sender)`)
 
 	for i, line := range lines {
 		if functionPattern.MatchString(line) {
-			// Check if this function has access control
 			hasAccessControl := false
 
-			// Look ahead a few lines for access control
 			for j := i; j < len(lines) && j < i+5; j++ {
 				if modifierPattern.MatchString(lines[j]) {
 					hasAccessControl = true
@@ -548,7 +462,6 @@ func (ca *ContractAuditor) analyzeAccessControl(contractCode string, lines []str
 		}
 	}
 
-	// Check for hardcoded addresses
 	addressPattern := regexp.MustCompile(`0x[a-fA-F0-9]{40}`)
 	for i, line := range lines {
 		if addressPattern.MatchString(line) && !strings.Contains(line, "//") {
@@ -567,28 +480,106 @@ func (ca *ContractAuditor) analyzeAccessControl(contractCode string, lines []str
 	}
 }
 
-func (ca *ContractAuditor) analyzeIntegerOverflows(contractCode string, lines []string, report *AuditReport) {
-	report.AnalysisModules = append(report.AnalysisModules, "Integer Overflow Analysis")
+func (ca *ContractAuditor) analyzeSolidityVersion(contractCode string, lines []string, report *AuditReport) {
+	report.AnalysisModules = append(report.AnalysisModules, "Solidity Version & Best Practices")
 
-	// Check for unchecked arithmetic operations
-	arithmeticPattern := regexp.MustCompile(`\+\+|--|[+\-*/]\s*=|\s+[\+\-\*\/]\s+`)
-	safeMathPattern := regexp.MustCompile(`SafeMath\.|\.add\(|\.sub\(|\.mul\(|\.div\(`)
-
-	hasSafeMath := strings.Contains(contractCode, "SafeMath") || strings.Contains(contractCode, "pragma solidity ^0.8")
+	// Check compiler version
+	versionPattern := regexp.MustCompile(`pragma\s+solidity\s+[\^~>=<]*(\d+\.\d+\.\d+)`)
 
 	for i, line := range lines {
-		if arithmeticPattern.MatchString(line) && !safeMathPattern.MatchString(line) && !hasSafeMath {
+		if matches := versionPattern.FindStringSubmatch(line); len(matches) > 1 {
+			version := matches[1]
+			// Check if version is older than 0.8.0
+			if strings.HasPrefix(version, "0.7") || strings.HasPrefix(version, "0.6") || strings.HasPrefix(version, "0.5") || strings.HasPrefix(version, "0.4") {
+				report.Findings = append(report.Findings, AuditFinding{
+					ID:          fmt.Sprintf("OLD_SOLIDITY_%d", i+1),
+					Title:       "Outdated Solidity Version",
+					Severity:    SeverityMedium,
+					Description: fmt.Sprintf("Contract uses Solidity %s. Version 0.8.0+ includes automatic overflow protection and gas optimizations.", version),
+					LineNumber:  i + 1,
+					CodeSnippet: strings.TrimSpace(line),
+					Suggestion:  "Upgrade to Solidity 0.8.27 or latest stable version for built-in overflow protection and latest features.",
+					Category:    "Best Practices",
+					Confidence:  1.0,
+				})
+			}
+		}
+	}
+
+	// Check for usage of deprecated transfer() and send()
+	for i, line := range lines {
+		if strings.Contains(line, ".transfer(") || strings.Contains(line, ".send(") {
+			method := "transfer"
+			if strings.Contains(line, ".send(") {
+				method = "send"
+			}
 			report.Findings = append(report.Findings, AuditFinding{
-				ID:          fmt.Sprintf("INTEGER_OVERFLOW_%d", i+1),
-				Title:       "Potential Integer Overflow/Underflow",
-				Severity:    SeverityHigh,
-				Description: "Unchecked arithmetic operation detected. This may lead to integer overflow or underflow.",
+				ID:          fmt.Sprintf("DEPRECATED_TRANSFER_%d", i+1),
+				Title:       "Using Deprecated ETH Transfer Method",
+				Severity:    SeverityLow,
+				Description: fmt.Sprintf("%s() is a deprecated pattern that limits gas to 2300.", method),
 				LineNumber:  i + 1,
 				CodeSnippet: strings.TrimSpace(line),
-				Suggestion:  "Use SafeMath library or upgrade to Solidity ^0.8.0 which has built-in overflow checks.",
-				Category:    "Security",
-				Confidence:  0.8,
+				Suggestion:  "Use call{value: amount}(\"\") pattern for ETH transfers to avoid gas limit issues.",
+				Category:    "Best Practices",
+				Confidence:  0.9,
 			})
+		}
+	}
+
+	// Check for not using custom errors (gas optimization in 0.8.4+)
+	requirePattern := regexp.MustCompile(`require\([^,]+,\s*"[^"]+"\)`)
+	hasCustomErrors := strings.Contains(contractCode, "error ")
+
+	if !hasCustomErrors {
+		requireCount := 0
+		for _, line := range lines {
+			if requirePattern.MatchString(line) {
+				requireCount++
+			}
+		}
+
+		if requireCount > 3 {
+			report.GasOptimizations = append(report.GasOptimizations, GasOptimization{
+				Description:      "Use custom errors instead of require strings",
+				CurrentPattern:   "require(condition, \"Error message\")",
+				OptimizedPattern: "error CustomError(); if (!condition) revert CustomError();",
+				EstimatedSaving:  "~200-500 gas per revert",
+			})
+		}
+	}
+
+	// Check for not using immutable for constants
+	constantPattern := regexp.MustCompile(`\b(uint256|address|bytes32)\s+(\w+)\s*=\s*[^;]+;`)
+	for i, line := range lines {
+		if constantPattern.MatchString(line) && !strings.Contains(line, "constant") && !strings.Contains(line, "immutable") {
+			// Check if it's in a constructor or set once
+			if !strings.Contains(line, "memory") && !strings.Contains(line, "storage") {
+				report.GasOptimizations = append(report.GasOptimizations, GasOptimization{
+					Description:      "Consider using immutable for values set once at deployment",
+					LineNumber:       i + 1,
+					CurrentPattern:   strings.TrimSpace(line),
+					OptimizedPattern: "Use 'immutable' keyword for deployment-time constants",
+					EstimatedSaving:  "~2100 gas per read after deployment",
+				})
+			}
+		}
+	}
+
+	// Check for unchecked blocks opportunity (0.8.0+)
+	incrementPattern := regexp.MustCompile(`\+\+|\+=`)
+	for i, line := range lines {
+		if incrementPattern.MatchString(line) && strings.Contains(line, "for") {
+			if !strings.Contains(contractCode, "unchecked") {
+				report.GasOptimizations = append(report.GasOptimizations, GasOptimization{
+					Description:      "Use unchecked blocks for loop increments",
+					LineNumber:       i + 1,
+					CurrentPattern:   strings.TrimSpace(line),
+					OptimizedPattern: "unchecked { ++i }",
+					EstimatedSaving:  "~30-40 gas per iteration",
+				})
+				break // Only report once
+			}
 		}
 	}
 }
@@ -596,9 +587,7 @@ func (ca *ContractAuditor) analyzeIntegerOverflows(contractCode string, lines []
 func (ca *ContractAuditor) analyzeGasOptimizations(contractCode string, lines []string, report *AuditReport) {
 	report.AnalysisModules = append(report.AnalysisModules, "Gas Optimization Analysis")
 
-	// Storage vs Memory inefficiencies
 	for i, line := range lines {
-		// Check for unnecessary storage reads in loops
 		if strings.Contains(line, "for") && strings.Contains(line, "storage") {
 			report.GasOptimizations = append(report.GasOptimizations, GasOptimization{
 				Description:      "Storage variable accessed in loop - consider caching in memory",
@@ -609,7 +598,6 @@ func (ca *ContractAuditor) analyzeGasOptimizations(contractCode string, lines []
 			})
 		}
 
-		// Check for string concatenation
 		if strings.Contains(line, "string(abi.encodePacked(") {
 			report.GasOptimizations = append(report.GasOptimizations, GasOptimization{
 				Description:      "String concatenation can be expensive",
@@ -620,7 +608,6 @@ func (ca *ContractAuditor) analyzeGasOptimizations(contractCode string, lines []
 			})
 		}
 
-		// Check for inefficient loops
 		if strings.Contains(line, ".length") && strings.Contains(line, "for") {
 			report.GasOptimizations = append(report.GasOptimizations, GasOptimization{
 				Description:      "Array length accessed in loop condition",
@@ -632,7 +619,6 @@ func (ca *ContractAuditor) analyzeGasOptimizations(contractCode string, lines []
 		}
 	}
 
-	// Check for public variables that could be external
 	publicVarPattern := regexp.MustCompile(`function\s+\w+.*public.*view.*returns`)
 	for i, line := range lines {
 		if publicVarPattern.MatchString(line) {
@@ -654,15 +640,12 @@ func (ca *ContractAuditor) analyzeUnhandledExceptions(contractCode string, lines
 
 	for i, line := range lines {
 		if callPattern.MatchString(line) {
-			// Check if return value is handled
 			handled := false
 
-			// Look for return value handling patterns
 			if strings.Contains(line, "(bool success") || strings.Contains(line, "require(") {
 				handled = true
 			}
 
-			// Check next few lines for handling
 			for j := i + 1; j < len(lines) && j < i+3; j++ {
 				if strings.Contains(lines[j], "require(success") || strings.Contains(lines[j], "if (!success)") {
 					handled = true
@@ -690,7 +673,6 @@ func (ca *ContractAuditor) analyzeUnhandledExceptions(contractCode string, lines
 func (ca *ContractAuditor) analyzeFrontRunningVulnerabilities(contractCode string, lines []string, report *AuditReport) {
 	report.AnalysisModules = append(report.AnalysisModules, "Front-running Analysis")
 
-	// Check for price/value dependencies on external state
 	pricePattern := regexp.MustCompile(`price|amount|value.*=.*external|oracle`)
 
 	for i, line := range lines {
@@ -713,18 +695,16 @@ func (ca *ContractAuditor) analyzeFrontRunningVulnerabilities(contractCode strin
 func (ca *ContractAuditor) analyzeUncheckedReturnValues(contractCode string, lines []string, report *AuditReport) {
 	report.AnalysisModules = append(report.AnalysisModules, "Return Value Analysis")
 
-	transferPattern := regexp.MustCompile(`\.transfer\(|\.send\(`)
-
 	for i, line := range lines {
-		if transferPattern.MatchString(line) && !strings.Contains(line, "require(") {
+		if strings.Contains(line, ".send(") && !strings.Contains(line, "require(") {
 			report.Findings = append(report.Findings, AuditFinding{
-				ID:          fmt.Sprintf("UNCHECKED_TRANSFER_%d", i+1),
-				Title:       "Unchecked Transfer Return Value",
+				ID:          fmt.Sprintf("UNCHECKED_SEND_%d", i+1),
+				Title:       "Unchecked Send Return Value",
 				Severity:    SeverityMedium,
-				Description: "Transfer/send return value is not checked, failed transfers may go unnoticed.",
+				Description: "send() return value is not checked, failed transfers may go unnoticed.",
 				LineNumber:  i + 1,
 				CodeSnippet: strings.TrimSpace(line),
-				Suggestion:  "Always check return values of transfer/send operations using require() or handle failures explicitly.",
+				Suggestion:  "Always check return values of send() operations using require() or handle failures explicitly.",
 				Category:    "Security",
 				Confidence:  0.9,
 			})
@@ -833,7 +813,6 @@ func (ca *ContractAuditor) analyzeUpgradeability(contractCode string, lines []st
 func (ca *ContractAuditor) analyzeBusinessLogic(contractCode string, lines []string, report *AuditReport) {
 	report.AnalysisModules = append(report.AnalysisModules, "Business Logic Analysis")
 
-	// Check for common business logic issues
 	for i, line := range lines {
 		// Division before multiplication (precision loss)
 		if strings.Contains(line, "/") && strings.Contains(line, "*") {
@@ -905,7 +884,6 @@ func (ca *ContractAuditor) finalizeReport(report *AuditReport) {
 	}
 	report.SecurityScore = score
 
-	// Generate summary
 	if report.TotalFindings == 0 {
 		report.Summary = "No security issues detected. The contract appears to follow good security practices."
 	} else {
@@ -935,7 +913,6 @@ func (ca *ContractAuditor) finalizeReport(report *AuditReport) {
 		report.Summary = summary
 	}
 
-	// Sort findings by severity and line number
 	sort.Slice(report.Findings, func(i, j int) bool {
 		severityOrder := map[AuditSeverity]int{
 			SeverityCritical: 0,
@@ -963,7 +940,7 @@ func main() {
 
 	pp, err := server.NewPonosPerformerWithRpcServer(&server.PonosPerformerConfig{
 		Port:    8080,
-		Timeout: 30 * time.Second, // Extended timeout for complex audits
+		Timeout: 30 * time.Second,
 	}, auditor, l)
 	if err != nil {
 		panic(fmt.Errorf("failed to create audit performer: %w", err))
@@ -973,7 +950,7 @@ func main() {
 	l.Info("Analysis modules loaded", zap.Strings("modules", []string{
 		"Reentrancy Analysis",
 		"Access Control Analysis",
-		"Integer Overflow Analysis",
+		"Solidity Version & Best Practices",
 		"Exception Handling Analysis",
 		"Front-running Analysis",
 		"Gas Optimization Analysis",

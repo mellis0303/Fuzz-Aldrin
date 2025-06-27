@@ -1,6 +1,4 @@
-# 🔗 ON-CHAIN INTEGRATION: How Audit AVS Connects to EigenLayer
-
-## Smart Contract Flow
+### Smart Contract Flow
 
 ### 1. Task Submission (TaskMailbox.sol)
 ```solidity
@@ -196,13 +194,4 @@ performance_decay: 0.99 # Performance score decay for inactivity
    - Economic guarantee: $500k+ in slashable stake
    ```
 
-## Why This Model Works
 
-✅ **Decentralized**: No single point of failure
-✅ **Economically Secure**: Operators risk real money
-✅ **Quality Assured**: Consensus prevents bad results  
-✅ **Scalable**: More operators = more capacity
-✅ **Transparent**: All results cryptographically verifiable
-✅ **User-Friendly**: Pay once, get validated consensus result
-
-This creates a **trustless audit marketplace** where economic incentives ensure high-quality security analysis at scale! 🚀
