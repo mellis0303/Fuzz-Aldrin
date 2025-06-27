@@ -40,7 +40,7 @@ grpcurl -plaintext \
 
 Test with contract address:
 ```bash
-PAYLOAD='{"type":"address","data":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48","network":"mainnet","etherscan_key":"YOUR_API_KEY"}'
+PAYLOAD='{"type":"address","data":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48","network":"mainnet","etherscan_api_key":"ETHERSCAN_API_KEY"}'
 ENCODED_PAYLOAD=$(echo -n "$PAYLOAD" | base64)
 
 grpcurl -plaintext \
@@ -67,7 +67,7 @@ The service accepts two types of inputs:
   "type": "address",
   "data": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
   "network": "mainnet",
-  "etherscan_key": "YOUR_API_KEY"
+  "etherscan_api_key": "ETHERSCAN_API_KEY"
 }
 ```
 
