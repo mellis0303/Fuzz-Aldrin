@@ -1,63 +1,154 @@
 #!/bin/bash
 
-# Configuration
-export RPC_URL="https://rpc.buildbear.io/interesting-ironman-ad903c8a"
-export PRIVATE_KEY="ce0d16008295cd984b8011faf8cd1e1945c776b40357a52eae7de835d9594e11"
-export CHAIN_ID=26804
+# Load environment variables from .env file in root directory
+if [ -f ".env" ]; then
+    export $(cat .env | grep -v '^#' | xargs)
+else
+    echo "Error: .env file not found in root directory"
+    echo "Please create .env file with your configuration"
+    exit 1
+fi
 
-echo "Deploying Fuzz-Aldrin AVS to BuildBear testnet..."
-echo "RPC: $RPC_URL"
+# Validate required environment variables
+if [ -z "$PRIVATE_KEY" ]; then
+    echo "Error: PRIVATE_KEY not set in .env file"
+    exit 1
+fi
+
+if [ -z "$RPC_URL" ]; then
+    echo "Error: RPC_URL not set in .env file"
+    exit 1
+fi
+
+# Set defaults if not provided
+CHAIN_ID=${CHAIN_ID:-26804}
+ACCOUNT=${ACCOUNT:-$(cast wallet address --private-key $PRIVATE_KEY)}
+
+echo "Deploying Fuzz-Aldrin AVS"
+echo "========================="
+echo "RPC URL: $RPC_URL"
 echo "Chain ID: $CHAIN_ID"
+echo "Account: $ACCOUNT"
+echo ""
 
-# Deploy contracts using Foundry
-echo "Deploying core AVS contracts..."
+# Export RPC_URL for cast/forge commands
+export ETH_RPC_URL=$RPC_URL
+
+# Check balance
+echo "Checking account balance..."
+BALANCE=$(cast balance $ACCOUNT)
+echo "Balance: $BALANCE"
+echo ""
+
+# Deploy contracts
+echo "Deploying contracts..."
+echo ""
 
 # Deploy TaskMailbox
-echo "Deploying TaskMailbox..."
-TASK_MAILBOX=$(forge create contracts/avs/TaskMailbox.sol:TaskMailbox \
-    --rpc-url $RPC_URL \
+echo "1. Deploying TaskMailbox..."
+OUTPUT=$(forge create contracts/avs/TaskMailbox.sol:TaskMailbox \
     --private-key $PRIVATE_KEY \
-    --json | jq -r '.deployedTo')
+    --broadcast \
+    2>&1)
 
-echo "TaskMailbox deployed at: $TASK_MAILBOX"
+# Extract deployed address using grep and awk
+TASK_MAILBOX=$(echo "$OUTPUT" | grep "Deployed to:" | awk '{print $3}')
+
+if [ -z "$TASK_MAILBOX" ] || [ "$TASK_MAILBOX" = "null" ]; then
+    echo "Error: Failed to deploy TaskMailbox"
+    echo "Full output was:"
+    echo "$OUTPUT"
+    exit 1
+fi
+echo "   TaskMailbox deployed at: $TASK_MAILBOX"
 
 # Deploy AVSTaskHook
-echo "Deploying AVSTaskHook..."
-AVS_TASK_HOOK=$(forge create contracts/avs/AVSTaskHook.sol:AVSTaskHook \
-    --rpc-url $RPC_URL \
+echo ""
+echo "2. Deploying AVSTaskHook..."
+OUTPUT=$(forge create contracts/avs/AVSTaskHook.sol:AVSTaskHook \
     --private-key $PRIVATE_KEY \
     --constructor-args $TASK_MAILBOX \
-    --json | jq -r '.deployedTo')
+    --broadcast \
+    2>&1)
 
-echo "AVSTaskHook deployed at: $AVS_TASK_HOOK"
+AVS_TASK_HOOK=$(echo "$OUTPUT" | grep "Deployed to:" | awk '{print $3}')
+
+if [ -z "$AVS_TASK_HOOK" ] || [ "$AVS_TASK_HOOK" = "null" ]; then
+    echo "Error: Failed to deploy AVSTaskHook"
+    echo "Full output was:"
+    echo "$OUTPUT"
+    exit 1
+fi
+echo "   AVSTaskHook deployed at: $AVS_TASK_HOOK"
 
 # Deploy TaskAVSRegistrar
-echo "Deploying TaskAVSRegistrar..."
-TASK_REGISTRAR=$(forge create contracts/avs/TaskAVSRegistrar.sol:TaskAVSRegistrar \
-    --rpc-url $RPC_URL \
+echo ""
+echo "3. Deploying TaskAVSRegistrar..."
+OUTPUT=$(forge create contracts/avs/TaskAVSRegistrar.sol:TaskAVSRegistrar \
     --private-key $PRIVATE_KEY \
-    --json | jq -r '.deployedTo')
+    --broadcast \
+    2>&1)
 
-echo "TaskAVSRegistrar deployed at: $TASK_REGISTRAR"
+TASK_AVS_REGISTRAR=$(echo "$OUTPUT" | grep "Deployed to:" | awk '{print $3}')
+
+if [ -z "$TASK_AVS_REGISTRAR" ] || [ "$TASK_AVS_REGISTRAR" = "null" ]; then
+    echo "Error: Failed to deploy TaskAVSRegistrar"
+    echo "Full output was:"
+    echo "$OUTPUT"
+    exit 1
+fi
+echo "   TaskAVSRegistrar deployed at: $TASK_AVS_REGISTRAR"
+
+# Configure contracts
+echo ""
+echo "Configuring contracts..."
+
+# Set TaskHook in TaskMailbox
+echo "4. Setting TaskHook in TaskMailbox..."
+TX_OUTPUT=$(cast send $TASK_MAILBOX "setTaskHook(address)" $AVS_TASK_HOOK \
+    --private-key $PRIVATE_KEY \
+    2>&1)
+echo "   Output: $TX_OUTPUT"
+
+# Authorize aggregator
+echo "5. Authorizing deployer as aggregator..."
+TX_OUTPUT=$(cast send $TASK_MAILBOX "authorizeAggregator(address)" $ACCOUNT \
+    --private-key $PRIVATE_KEY \
+    2>&1)
+echo "   Output: $TX_OUTPUT"
+
+# Set aggregator in AVSTaskHook
+echo "6. Setting aggregator in AVSTaskHook..."
+TX_OUTPUT=$(cast send $AVS_TASK_HOOK "setAggregator(address)" $ACCOUNT \
+    --private-key $PRIVATE_KEY \
+    2>&1)
+echo "   Output: $TX_OUTPUT"
 
 # Save deployment addresses
 cat > deployment.json << EOF
 {
-  "network": "buildbear-sepolia-fork",
   "chainId": $CHAIN_ID,
   "rpcUrl": "$RPC_URL",
+  "deploymentTime": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "contracts": {
-    "TaskMailbox": "$TASK_MAILBOX",
-    "AVSTaskHook": "$AVS_TASK_HOOK",
-    "TaskAVSRegistrar": "$TASK_REGISTRAR"
+    "taskMailbox": "$TASK_MAILBOX",
+    "avsTaskHook": "$AVS_TASK_HOOK",
+    "taskAVSRegistrar": "$TASK_AVS_REGISTRAR"
   },
-  "deploymentBlock": $(cast block-number --rpc-url $RPC_URL)
+  "aggregator": "$ACCOUNT"
 }
 EOF
 
-echo "Deployment complete! Addresses saved to deployment.json"
+echo ""
+echo "✅ Deployment complete!"
+echo ""
+echo "Contract addresses:"
+echo "  TaskMailbox: $TASK_MAILBOX"
+echo "  AVSTaskHook: $AVS_TASK_HOOK"
+echo "  TaskAVSRegistrar: $TASK_AVS_REGISTRAR"
+echo ""
+echo "Deployment info saved to deployment.json"
 echo ""
 echo "Next steps:"
-echo "1. Run the aggregator: ./scripts/run_aggregator.sh"
-echo "2. Register operators: ./scripts/register_operators.sh"
-echo "3. Submit an audit task: ./scripts/submit_task.sh" 
+echo "1. Run the aggregator: go run cmd/aggregator/main.go"
+echo "2. Submit an audit task" 

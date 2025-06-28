@@ -127,13 +127,6 @@ offline = false
 # Sparse mode (only compile files needed)
 sparse_mode = true
 
-# Model checker settings
-[model_checker]
-contracts = {}
-engine = "chc"
-timeout = 10000
-targets = ["assert", "underflow", "overflow", "divByZero", "constantCondition", "popEmptyArray", "outOfBounds"]
-
 # Invariant testing configuration
 [invariant]
 runs = 256
